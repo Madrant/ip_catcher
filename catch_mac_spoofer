@@ -1,0 +1,150 @@
+#!/bin/bash
+
+SCRIPT_VERSION=0.1.0
+
+SCRIPT_DIR="$(dirname $(readlink -f $0))"
+SCRIPT_PATH=$SCRIPT_DIR/`basename $0`
+
+PARENT_DIR=`dirname "$SCRIPT_DIR"`
+CURRENT_DIR=`pwd`
+
+set -e
+set -o nounset
+
+# Print help
+#
+# none
+print_help() {
+    script_name=`basename $0`
+
+    echo "$script_name - MAC spoofer catcher script"
+    echo
+    echo "Parameters:"
+    echo "    --ip <ip> - set IP-address"
+    echo "    --finger  - enable fingerprint scan for nmap"
+    echo "    help      - print help"
+    echo
+
+    exit 0
+}
+
+# cmdline global variable
+IP=
+FINGER=
+
+# Parse cmdline params for whole script
+#
+# $1...$n - script params
+parse_cmdline() {
+    local cmdline_params=( "$@" )
+
+    if [ ${#@} -eq 0 ]
+    then
+        print_help
+        exit 1
+    fi
+
+    local i=0
+
+    for param in "${cmdline_params[@]}"
+    do
+        case $param in
+            "help")
+                print_help
+            ;;
+            "--ip")
+                IP="${cmdline_params[$(($i+1))]}"
+            ;;
+            "--finger")
+                FINGER="-sV"
+            ;;
+            *)  # default
+                # do nothing
+            ;;
+        esac
+
+        i=$(($i+1))
+    done
+
+    if [ -z $IP ]
+    then
+        echo "Target IP-address is not set"
+        print_help
+
+        exit 1
+    fi
+}
+
+# Script starts here
+parse_cmdline "${@}"
+
+echo "Target IP: ${IP}"
+
+# ping parameters
+count=1
+deadline=1
+
+ping_cmd="ping -c ${count} -n -w ${deadline} ${IP}"
+ping_tmp="/dev/null"
+
+# Exit by Ctrl+C
+trap "exit 0" SIGINT SIGTERM
+
+target_online=0
+
+echo "Waiting for target '${IP}', press 'Ctrl+C' to exit"
+
+while [ ! $target_online -eq 1 ]
+do
+    $ping_cmd > ${ping_tmp} 2>&1 && rc=$? || rc=$? && true #do not exit on error
+
+    if [ $rc -eq 0 ]
+    then
+        target_online=1
+        break;
+    fi
+
+    sleep 5
+done
+
+up_date=`date +"[%d:%m:%Y %H:%M]"`
+
+echo "Target '${IP}' is up at '${up_date}' - performing target scan..."
+
+# Do not exit on error
+set +e
+
+# Show ttl
+echo "Getting TTL using ping..."
+TTL=`ping -c 1 -w 2 "${IP}" | grep ttl | awk '{ print $6 }' | sed -e "s@ttl=@@g"`
+
+# Show MAC
+echo "Checking MAC from ARP-table..."
+MAC=`arp | grep "${IP}" | awk '{ print $3 }'`
+
+# Show NETBIOS name
+echo "Checking NETBIOS name..."
+NB=(`nmblookup -A "${IP}" | grep "<ACTIVE>" | awk '{ print $1 }'`)
+
+# Show open ports
+echo "Scanning for open ports..."
+IFS=$'\n'
+OPEN_PORTS=(`nmap "${FINGER}" "${IP}" -Pn 2>&1 | grep "open"`)
+unset IFS
+
+# Return exit on error behaviour back
+set -e
+
+echo "Scan completed for target: '${IP}'"
+echo "  IP:           ${IP}"
+echo "  MAC:          ${MAC}"
+echo "  TTL:          ${TTL}"
+echo "  NETBIOS name: ${NB[0]}"
+echo "  Open ports:   ${#OPEN_PORTS[@]}"
+
+for p in "${OPEN_PORTS[@]}"
+do
+    echo "    $p"
+done
+
+exit 0
