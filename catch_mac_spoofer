@@ -75,58 +75,105 @@ parse_cmdline() {
     fi
 }
 
+# Wait for IP is up
+#
+# $1 - IP address
+# $2 - pass 'online' - wait for ip is online, 'offline' - wait for ip is offline
+# $3 - sleep time before check retry (optional)
+#
+# Script returns when target IP is online
+wait_for_ip() {
+    local sleep_time=5
+    local mode="online"
+
+    if [ ${1+x} ]
+    then
+        local ip="$1"
+    else
+        echo "wait_for_ip(): IP-address not set"
+        exit 1
+    fi
+
+    if [ ${2+x} ]
+    then
+        if [ "$2" == "offline" ]
+        then
+            mode="offline"
+        else
+            mode="online"
+        fi
+    fi
+
+    if [ ${3+x} ]
+    then
+        sleep_time="$3"
+    fi
+
+    # ping parameters
+    local count=1
+    local deadline=1
+
+    local ping_cmd="ping -c ${count} -n -w ${deadline} ${IP}"
+    local ping_tmp="/dev/null"
+
+    # Exit by Ctrl+C
+    trap "exit 1" SIGINT SIGTERM
+
+    local target_state="unknown"
+
+    echo "Waiting for target '${IP}' is ${mode}, press 'Ctrl+C' to exit"
+
+    while [ "${target_state}" != "${mode}" ]
+    do
+        $ping_cmd > ${ping_tmp} 2>&1 && rc=$? || rc=$? && true #do not exit on error
+
+        if [ $rc -eq 0 ]
+        then
+            target_state="online"
+        else
+            target_state="offline"
+        fi
+
+        if [ "${target_state}" != ${mode} ]
+        then
+            sleep "${sleep_time}"
+        fi
+    done
+}
+
 # Script starts here
 parse_cmdline "${@}"
 
 echo "Target IP: ${IP}"
 
-# ping parameters
-count=1
-deadline=1
+# Wait for target is online
+wait_for_ip "${IP}" "online"
 
-ping_cmd="ping -c ${count} -n -w ${deadline} ${IP}"
-ping_tmp="/dev/null"
-
-# Exit by Ctrl+C
-trap "exit 0" SIGINT SIGTERM
-
-target_online=0
-
-echo "Waiting for target '${IP}', press 'Ctrl+C' to exit"
-
-while [ ! $target_online -eq 1 ]
-do
-    $ping_cmd > ${ping_tmp} 2>&1 && rc=$? || rc=$? && true #do not exit on error
-
-    if [ $rc -eq 0 ]
-    then
-        target_online=1
-        break;
-    fi
-
-    sleep 5
-done
-
+# Target is up here
 up_date=`date +"[%d:%m:%Y %H:%M]"`
-
-echo "Target '${IP}' is up at '${up_date}' - performing target scan..."
+echo "Target '${IP}' is online at '${up_date}' - performing target scan..."
 
 # Do not exit on error
 set +e
 
-# Show ttl
+# Get ttl
 echo "Getting TTL using ping..."
 TTL=`ping -c 1 -w 2 "${IP}" | grep ttl | awk '{ print $6 }' | sed -e "s@ttl=@@g"`
 
-# Show MAC
+# Get MAC
 echo "Checking MAC from ARP-table..."
-MAC=`arp | grep "${IP}" | awk '{ print $3 }'`
+MAC=`arp -n | grep "${IP}" | awk '{ print $3 }'`
 
-# Show NETBIOS name
+# Get NETBIOS name
 echo "Checking NETBIOS name..."
 NB=(`nmblookup -A "${IP}" | grep "<ACTIVE>" | awk '{ print $1 }'`)
 
-# Show open ports
+if [ ${#NB[@]} -eq 0 ]
+then
+    NB=("none")
+fi
+
+# Get open ports
 echo "Scanning for open ports..."
 IFS=$'\n'
 OPEN_PORTS=(`nmap "${FINGER}" "${IP}" -Pn 2>&1 | grep "open"`)
@@ -135,6 +182,7 @@ unset IFS
 # Return exit on error behaviour back
 set -e
 
+# Show collected data
 echo "Scan completed for target: '${IP}'"
 echo "  IP:           ${IP}"
 echo "  MAC:          ${MAC}"
@@ -142,9 +190,18 @@ echo "  TTL:          ${TTL}"
 echo "  NETBIOS name: ${NB[0]}"
 echo "  Open ports:   ${#OPEN_PORTS[@]}"
 
+# Show open ports
 for p in "${OPEN_PORTS[@]}"
 do
     echo "    $p"
 done
 
+# Wait for target is offline
+wait_for_ip "${IP}" "offline"
+
+# Target is off here
+off_date=`date +"[%d:%m:%Y %H:%M]"`
+echo "Target '${IP}' is offline at '${off_date}'"
+
+# Exit
 exit 0
