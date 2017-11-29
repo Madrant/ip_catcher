@@ -1,12 +1,6 @@
 #!/bin/bash
 
-SCRIPT_VERSION=0.1.0
-
-SCRIPT_DIR="$(dirname $(readlink -f $0))"
-SCRIPT_PATH=$SCRIPT_DIR/`basename $0`
-
-PARENT_DIR=`dirname "$SCRIPT_DIR"`
-CURRENT_DIR=`pwd`
+SCRIPT_VERSION=0.1.1
 
 set -e
 set -o nounset
@@ -15,7 +9,7 @@ set -o nounset
 #
 # none
 print_help() {
-    script_name=`basename $0`
+    script_name=$(basename "$0")
 
     echo "$script_name - MAC spoofer catcher script"
     echo
@@ -66,7 +60,7 @@ parse_cmdline() {
         i=$(($i+1))
     done
 
-    if [ -z $IP ]
+    if [ -z "$IP" ]
     then
         echo "Target IP-address is not set"
         print_help
@@ -113,7 +107,7 @@ wait_for_ip() {
     local count=1
     local deadline=1
 
-    local ping_cmd="ping -c ${count} -n -w ${deadline} ${IP}"
+    local ping_cmd="ping -c ${count} -n -w ${deadline} ${ip}"
     local ping_tmp="/dev/null"
 
     # Exit by Ctrl+C
@@ -150,7 +144,7 @@ echo "Target IP: ${IP}"
 wait_for_ip "${IP}" "online"
 
 # Target is up here
-up_date=`date +"[%d:%m:%Y %H:%M]"`
+up_date=$(date +"[%d:%m:%Y %H:%M]")
 echo "Target '${IP}' is online at '${up_date}' - performing target scan..."
 
 # Do not exit on error
@@ -158,15 +152,15 @@ set +e
 
 # Get ttl
 echo "Getting TTL using ping..."
-TTL=`ping -c 1 -w 2 "${IP}" | grep ttl | awk '{ print $6 }' | sed -e "s@ttl=@@g"`
+TTL=$(ping -c 1 -w 2 "${IP}" | grep ttl | awk '{ print $6 }' | sed -e "s@ttl=@@g")
 
 # Get MAC
 echo "Checking MAC from ARP-table..."
-MAC=`arp -n | grep "${IP}" | awk '{ print $3 }'`
+MAC=$(arp -n | grep "${IP} " | awk '{ print $3 }')
 
 # Get NETBIOS name
 echo "Checking NETBIOS name..."
-NB=(`nmblookup -A "${IP}" | grep "<ACTIVE>" | awk '{ print $1 }'`)
+NB=($(nmblookup -A "${IP}" | grep "<ACTIVE>" | awk '{ print $1 }'))
 
 if [ ${#NB[@]} -eq 0 ]
 then
@@ -176,7 +170,7 @@ fi
 # Get open ports
 echo "Scanning for open ports..."
 IFS=$'\n'
-OPEN_PORTS=(`nmap "${FINGER}" "${IP}" -Pn 2>&1 | grep "open"`)
+OPEN_PORTS=($(nmap "${FINGER}" "${IP}" -Pn 2>&1 | grep "open"))
 unset IFS
 
 # Return exit on error behaviour back
@@ -200,7 +194,7 @@ done
 wait_for_ip "${IP}" "offline"
 
 # Target is off here
-off_date=`date +"[%d:%m:%Y %H:%M]"`
+off_date=$(date +"[%d:%m:%Y %H:%M]")
 echo "Target '${IP}' is offline at '${off_date}'"
 
 # Exit
